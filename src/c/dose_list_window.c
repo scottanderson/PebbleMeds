@@ -88,6 +88,7 @@ static void format_dose_time(time_t ts, char *buf, size_t buflen) {
 
 static Window    *s_window;
 static MenuLayer *s_menu_layer;
+static StatusBarLayer *s_status_bar;
 static TextLayer *s_empty_layer;
 static UiScale    s_scale;
 
@@ -261,6 +262,16 @@ static void window_load(Window *window) {
     GRect bounds = layer_get_bounds(root);
     s_scale = ui_scale_get();
 
+    // System-style status bar with the clock. Round screens keep the
+    // centered header instead, as there is no room for both.
+#ifdef PBL_RECT
+    s_status_bar = status_bar_layer_create();
+    status_bar_layer_set_colors(s_status_bar, GColorWhite, GColorBlack);
+    layer_add_child(root, status_bar_layer_get_layer(s_status_bar));
+    bounds.origin.y += STATUS_BAR_LAYER_HEIGHT;
+    bounds.size.h   -= STATUS_BAR_LAYER_HEIGHT;
+#endif
+
     s_menu_layer = menu_layer_create(bounds);
     menu_layer_set_callbacks(s_menu_layer, NULL, (MenuLayerCallbacks){
         .get_num_sections = get_num_sections,
@@ -284,7 +295,7 @@ static void window_load(Window *window) {
     // Empty state
     // Room for 3 lines: the message can wrap at larger sizes.
     int16_t empty_h = ui_font_line_h(UI_FONT_BODY_BOLD, s_scale) * 3 + 4;
-    s_empty_layer = text_layer_create(GRect(0, bounds.size.h / 2 - empty_h / 2, bounds.size.w, empty_h));
+    s_empty_layer = text_layer_create(GRect(0, bounds.origin.y + bounds.size.h / 2 - empty_h / 2, bounds.size.w, empty_h));
     text_layer_set_text(s_empty_layer, "No meds scheduled.\nUse the phone app!");
     text_layer_set_font(s_empty_layer, ui_font(UI_FONT_BODY_BOLD, s_scale));
     text_layer_set_text_alignment(s_empty_layer, GTextAlignmentCenter);
@@ -298,6 +309,10 @@ static void window_load(Window *window) {
 }
 
 static void window_unload(Window *window) {
+    if (s_status_bar) {
+        status_bar_layer_destroy(s_status_bar);
+        s_status_bar = NULL;
+    }
     menu_layer_destroy(s_menu_layer);
     s_menu_layer = NULL;
     text_layer_destroy(s_empty_layer);
