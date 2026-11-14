@@ -87,21 +87,20 @@ void dose_list_window_refresh_after(uint8_t med_index, time_t dose_time);
 // Text
 // ---------------------------------------------------------------------------
 
-static bool details_hidden(void) {
-    return med_list_get_settings()->privacyMode && !s_revealed;
-}
-
 static char s_name_buf[36];
 static char s_who_buf[56];
 static char s_until_buf[24];
 static char s_time_buf[32];
 
+static bool details_hidden(void) {
+    return med_list_get_settings()->privacyMode && !s_revealed;
+}
+
 static void update_text(void) {
-    MedEntry    *med      = med_list_get(s_med_index);
-    AppSettings *settings = med_list_get_settings();
+    MedEntry *med = med_list_get(s_med_index);
     if (!med) return;
 
-    if (settings->privacyMode && !s_revealed) {
+    if (details_hidden()) {
         snprintf(s_name_buf, sizeof(s_name_buf), "Medication Due");
         snprintf(s_who_buf,  sizeof(s_who_buf),  "%s", med->taker);
     } else {
@@ -113,7 +112,6 @@ static void update_text(void) {
         }
     }
 
-    // "In 25 min" above "Due 9:00 AM"
     if (s_dose_time > 0) {
         char when[24];
         time_fmt_relative(s_dose_time, s_until_buf, sizeof(s_until_buf));
@@ -269,12 +267,98 @@ static void do_snooze(uint16_t mins) {
 }
 
 // ---------------------------------------------------------------------------
+// Snooze duration menu: each choice shows when the reminder will return.
+// Aplite is short on heap, so it snoozes for the default time like the alarm.
+// ---------------------------------------------------------------------------
+#if !defined(PBL_PLATFORM_APLITE)
+#define HAS_SNOOZE_MENU 1
+
+#define SNOOZE_CHOICES_MAX 7
+static const uint16_t SNOOZE_CHOICES[] = {5, 10, 15, 30, 60, 120};
+static char s_snooze_labels[SNOOZE_CHOICES_MAX][32];
+
+static void snooze_performed(ActionMenu *menu, const ActionMenuItem *item, void *ctx) {
+    // Handled in snooze_menu_did_close so the dialog follows the menu closing.
+}
+
+static void snooze_menu_did_close(ActionMenu *menu, const ActionMenuItem *performed, void *ctx) {
+    action_menu_hierarchy_destroy(action_menu_get_root_level(menu), NULL, NULL);
+    if (performed && !s_action_taken) {
+        do_snooze((uint16_t)(uintptr_t)action_menu_item_get_action_data(performed));
+    }
+}
+
+// Narrow screens put the time on its own line so it never splits.
+#if PBL_DISPLAY_WIDTH < 200
+#define SNOOZE_SEP "\n"
+#else
+#define SNOOZE_SEP " \xc2\xb7 "
+#endif
+
+static void add_snooze_choice(ActionMenuLevel *level, int slot, uint16_t mins) {
+    char clock[12];
+    time_fmt_clock(time(NULL) + (time_t)mins * 60, clock, sizeof(clock));
+    if (mins % 60 == 0) {
+        snprintf(s_snooze_labels[slot], sizeof(s_snooze_labels[slot]),
+                 "%d h" SNOOZE_SEP "%s", mins / 60, clock);
+    } else {
+        snprintf(s_snooze_labels[slot], sizeof(s_snooze_labels[slot]),
+                 "%d min" SNOOZE_SEP "%s", mins, clock);
+    }
+    action_menu_level_add_action(level, s_snooze_labels[slot], snooze_performed,
+                                 (void *)(uintptr_t)mins);
+}
+
+// The SDK hides ActionMenuLevel. PebbleOS starts it with these fields and
+// opens the menu on default_selected_item, as the system alarm's snooze menu does.
+typedef struct {
+    void    *parent_level;
+    uint16_t max_items;
+    uint16_t num_items;
+    unsigned default_selected_item;
+} ActionMenuLevelHead;
+
+static void open_snooze_menu(void) {
+    // Choices in time order, with the default added in place if not listed.
+    uint16_t def = notifications_default_snooze_mins();
+    ActionMenuLevel *root = action_menu_level_create(SNOOZE_CHOICES_MAX);
+    int slot = 0, def_slot = 0;
+    bool def_added = false;
+    for (unsigned i = 0; i < ARRAY_LENGTH(SNOOZE_CHOICES); i++) {
+        if (!def_added && def <= SNOOZE_CHOICES[i]) {
+            def_slot = slot;
+            def_added = true;
+            if (def < SNOOZE_CHOICES[i]) add_snooze_choice(root, slot++, def);
+        }
+        add_snooze_choice(root, slot++, SNOOZE_CHOICES[i]);
+    }
+    if (!def_added) { def_slot = slot; add_snooze_choice(root, slot++, def); }
+    ((ActionMenuLevelHead *)root)->default_selected_item = def_slot;
+
+    ActionMenuConfig config = {
+        .root_level = root,
+        .colors = {
+            .background = PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack),
+            .foreground = GColorWhite,
+        },
+        .align     = ActionMenuAlignTop,
+        .did_close = snooze_menu_did_close,
+    };
+    action_menu_open(&config);
+}
+#endif
+
+// ---------------------------------------------------------------------------
 // Buttons: Up = Snooze, Select = Taken, Down = Skip, Back = Snooze (alerts)
 // ---------------------------------------------------------------------------
 
 static void up_click(ClickRecognizerRef rec, void *ctx) {
     if (s_action_taken) return;
+#ifdef HAS_SNOOZE_MENU
+    open_snooze_menu();
+#else
     do_snooze(notifications_default_snooze_mins());
+#endif
 }
 
 static void select_click(ClickRecognizerRef rec, void *ctx) {
@@ -396,7 +480,6 @@ static void window_load(Window *window) {
         *rows[i].layer = tl;
         y += rows[i].h;
     }
-
 
     update_text();
 }
