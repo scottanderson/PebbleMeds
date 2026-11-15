@@ -77,6 +77,7 @@ static uint8_t            s_med_index;
 static time_t             s_dose_time;
 static DetailWindowMode   s_mode;
 static bool               s_revealed;
+static bool               s_can_act;        // Taken and Skip are allowed
 static bool               s_action_taken;
 static bool               s_entry_done;     // prevents entry anim replaying
 static GRect              s_canvas_target_frame;
@@ -92,6 +93,13 @@ static char s_name_buf[36];
 static char s_who_buf[56];
 static char s_until_buf[24];
 static char s_time_buf[32];
+
+// A dose further ahead than the early limit can only be viewed.
+static bool dose_can_act(void) {
+    if (s_mode == DETAIL_MODE_ALERT) return true;
+    uint16_t limit = med_list_get_settings()->earlyLimitMins;
+    return limit == 0 || s_dose_time - time(NULL) <= (time_t)limit * 60;
+}
 
 static bool details_hidden(void) {
     return med_list_get_settings()->privacyMode && !s_revealed;
@@ -372,6 +380,7 @@ static void select_click(ClickRecognizerRef rec, void *ctx) {
         layer_mark_dirty(s_canvas_layer);
         return;
     }
+    if (!s_can_act) return;
     do_taken();
 }
 
@@ -388,7 +397,9 @@ static void back_click(ClickRecognizerRef rec, void *ctx) {
 
 static void click_config_provider(void *ctx) {
     window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
-    window_single_click_subscribe(BUTTON_ID_DOWN, down_click);
+    if (s_can_act) {
+        window_single_click_subscribe(BUTTON_ID_DOWN, down_click);
+    }
     // Snooze only applies to alerts; from the list, Back just closes.
     if (s_mode == DETAIL_MODE_ALERT) {
         window_single_click_subscribe(BUTTON_ID_UP, up_click);
@@ -418,16 +429,22 @@ static void window_load(Window *window) {
     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_check);
     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_DOWN, s_icon_x);
     action_bar_layer_set_click_config_provider(s_action_bar, click_config_provider);
-    action_bar_layer_add_to_window(s_action_bar, window);
+    int bar_w = 0;
+    if (s_can_act) {
+        action_bar_layer_add_to_window(s_action_bar, window);
+        bar_w = ACTION_BAR_WIDTH;
+    } else {
+        window_set_click_config_provider(window, click_config_provider);
+    }
 
 #ifdef PBL_RECT
     int content_x = 0;
-    int content_w = bounds.size.w - ACTION_BAR_WIDTH;
+    int content_w = bounds.size.w - bar_w;
     int text_inset = 4;
 #else
-    int content_x = 12;
-    int content_w = bounds.size.w - ACTION_BAR_WIDTH - content_x;
-    int text_inset = 8;
+    int content_x = s_can_act ? 12 : 0;
+    int content_w = bounds.size.w - bar_w - content_x;
+    int text_inset = s_can_act ? 8 : 16;
 #endif
     int text_x = content_x + text_inset;
     int text_w = content_w - text_inset * 2;
@@ -539,6 +556,7 @@ void detail_window_push(uint8_t med_index, time_t dose_time, DetailWindowMode mo
     s_dose_time    = dose_time;
     s_mode         = mode;
     s_revealed     = false;
+    s_can_act      = dose_can_act();
     s_action_taken = false;
     s_entry_done   = false;
     s_prop_anim    = NULL;

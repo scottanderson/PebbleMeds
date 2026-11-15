@@ -520,6 +520,22 @@
 
   <div class="row">
     <div>
+      <div class="label">Early Doses</div>
+      <div class="hint">How long before a dose is due you can mark it taken or skipped from the list</div>
+    </div>
+    <select id="early-limit-mins">
+      <option value="0">Any time</option>
+      <option value="15">15 min</option>
+      <option value="30">30 min</option>
+      <option value="60">1 hour</option>
+      <option value="120">2 hours</option>
+      <option value="240">4 hours</option>
+      <option value="480">8 hours</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <div>
       <div class="label">Privacy Mode</div>
       <div class="hint">Show "Medication Due" instead of drug name on notifications and Timeline</div>
     </div>
@@ -759,6 +775,9 @@ document.addEventListener("DOMContentLoaded", function () {
       if (cfg.settings) {
         if (cfg.settings.snoozeMins !== undefined) {
           setSnoozeMins(cfg.settings.snoozeMins);
+        }
+        if (cfg.settings.earlyLimitMins !== undefined) {
+          document.getElementById("early-limit-mins").value = String(cfg.settings.earlyLimitMins);
         }
         if (cfg.settings.privacyMode !== undefined) {
           document.getElementById("privacy-mode").checked = cfg.settings.privacyMode;
@@ -1258,6 +1277,7 @@ function saveConfig() {
     meds: meds,
     settings: {
       snoozeMins:   parseInt(document.getElementById("snooze-mins").value, 10) || 15,
+      earlyLimitMins: parseInt(document.getElementById("early-limit-mins").value, 10) || 0,
       privacyMode:  document.getElementById("privacy-mode").checked,
       knownTakers:  knownTakers
     }
