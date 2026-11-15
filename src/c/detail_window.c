@@ -54,6 +54,10 @@ static const GPathInfo DROP_PATH_INFO = {
     .points = s_drop_points
 };
 
+// An unanswered reminder buzzes again each minute, then snoozes itself.
+#define ALERT_REPEAT_MS (60 * 1000)
+#define ALERT_REPEATS   4
+
 // ---------------------------------------------------------------------------
 // Window state
 // ---------------------------------------------------------------------------
@@ -72,6 +76,8 @@ static GBitmap           *s_icon_snooze;
 static GPath             *s_shield_path;
 static GPath             *s_drop_path;
 static PropertyAnimation *s_prop_anim;
+static AppTimer          *s_alert_timer;
+static uint8_t            s_alert_repeats;
 
 static uint8_t            s_med_index;
 static time_t             s_dose_time;
@@ -231,6 +237,29 @@ static void entry_anim_stopped(Animation *anim, bool finished, void *ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Repeat alert
+// ---------------------------------------------------------------------------
+
+static void stop_alert_repeat(void) {
+    if (s_alert_timer) {
+        app_timer_cancel(s_alert_timer);
+        s_alert_timer = NULL;
+    }
+}
+
+// Closing the reminder unanswered snoozes it in window_unload.
+static void alert_repeat_cb(void *ctx) {
+    s_alert_timer = NULL;
+    if (s_alert_repeats >= ALERT_REPEATS) {
+        window_stack_remove(s_window, true);
+        return;
+    }
+    s_alert_repeats++;
+    notifications_alert(s_med_index);
+    s_alert_timer = app_timer_register(ALERT_REPEAT_MS, alert_repeat_cb, NULL);
+}
+
+// ---------------------------------------------------------------------------
 // Actions: like the system alarm, close the reminder and confirm the result
 // ---------------------------------------------------------------------------
 
@@ -363,6 +392,7 @@ static void open_snooze_menu(void) {
 // ---------------------------------------------------------------------------
 
 static void up_click(ClickRecognizerRef rec, void *ctx) {
+    stop_alert_repeat();
     if (s_action_taken) return;
 #ifdef HAS_SNOOZE_MENU
     open_snooze_menu();
@@ -372,6 +402,7 @@ static void up_click(ClickRecognizerRef rec, void *ctx) {
 }
 
 static void select_click(ClickRecognizerRef rec, void *ctx) {
+    stop_alert_repeat();
     if (s_action_taken) return;
     // Privacy mode: the first press reveals the medication.
     if (details_hidden()) {
@@ -386,11 +417,13 @@ static void select_click(ClickRecognizerRef rec, void *ctx) {
 
 // Skipping can't be undone, so ask first.
 static void down_click(ClickRecognizerRef rec, void *ctx) {
+    stop_alert_repeat();
     if (s_action_taken) return;
     skip_confirm_push(do_skip);
 }
 
 static void back_click(ClickRecognizerRef rec, void *ctx) {
+    stop_alert_repeat();
     if (s_action_taken) return;
     do_snooze(notifications_default_snooze_mins());
 }
@@ -520,6 +553,7 @@ static void window_appear(Window *window) {
 }
 
 static void window_unload(Window *window) {
+    stop_alert_repeat();
     cancel_current_anim();
 
     // Alert closed without an action (app exit, another app): implicit snooze.
@@ -560,6 +594,9 @@ void detail_window_push(uint8_t med_index, time_t dose_time, DetailWindowMode mo
     s_action_taken = false;
     s_entry_done   = false;
     s_prop_anim    = NULL;
+    s_alert_repeats = 0;
+    s_alert_timer  = (mode == DETAIL_MODE_ALERT)
+                   ? app_timer_register(ALERT_REPEAT_MS, alert_repeat_cb, NULL) : NULL;
 
     s_window = window_create();
     window_set_window_handlers(s_window, (WindowHandlers){
