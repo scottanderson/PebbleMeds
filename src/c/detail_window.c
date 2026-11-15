@@ -6,6 +6,7 @@
 #include "ui_fonts.h"
 #include "time_fmt.h"
 #include "confirm_dialog.h"
+#include "skip_confirm.h"
 #include <pebble.h>
 
 // ---------------------------------------------------------------------------
@@ -374,9 +375,10 @@ static void select_click(ClickRecognizerRef rec, void *ctx) {
     do_taken();
 }
 
+// Skipping can't be undone, so ask first.
 static void down_click(ClickRecognizerRef rec, void *ctx) {
     if (s_action_taken) return;
-    do_skip();
+    skip_confirm_push(do_skip);
 }
 
 static void back_click(ClickRecognizerRef rec, void *ctx) {
