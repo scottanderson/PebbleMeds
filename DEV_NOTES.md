@@ -86,9 +86,9 @@ The `MedEntry` struct is stored as raw binary blobs via `persist_write_data`/`pe
 
 ### 2. Config Page Backward Compatibility (GitHub Pages)
 
-The configuration page (`src/pkjs/config.html`) is served from GitHub Pages and is updated immediately on push. Users may not upgrade their watch app for hours or days. **The config page JSON output must remain parseable by the previous watch app version.**
+The configuration page (`src/pkjs/config.html`) was previously served from GitHub Pages. To maintain backwards compatability, **the config page JSON output remains parseable by the previous watch app version.** Meanwhile, we've gained flexibility for future versions by pivoting to serving a local config page.
 
-- New JSON keys (`weekMask`, new `scheduleType` values) are safe — the watch C parser silently ignores unknown keys and falls back to defaults for missing values
+- New JSON keys (`weekMask`, `vibeStrength`, `repeatSnooze`, new `scheduleType` values) are safe — the watches' C parser silently ignores unknown keys and falls back to defaults for missing values
 - Changing/removing existing keys or their value formats would break old watch apps
 - Test: the JSON produced by the new config page must parse without error on the prior version's `parse_med_object`
 
@@ -143,6 +143,23 @@ already marked is dropped.
   is not shown, since its mark may have been dropped.
 - Repeat snoozes of one dose share one log entry, so snoozes do not push
   out the marks.
+
+### Bundled Config Page
+
+`src/pkjs/config.html` remains in the repository and GitHub Pages. This ensures backwards
+compatability for any watches running older versions of the app.
+`tools/gen_config_page.js` now encodes `config.html` into `src/pkjs/config_page.js`
+(`exports.HTML`), and `app.js` opens it as a `data:text/html;charset=utf-8,…` URI. This
+is the same mechanism Clay uses.
+
+- The medication list never risks reaching a third party. `Pebble.openURL` should no
+  point to a hosted page since it would receive every taker/drug/schedule.
+- The current config is injected as `window.PEBBLE_MEDS_CONFIG` so it works without
+  `localStorage`, which is unavailable to data: URIs on Android. The `location.hash` path
+  is kept only for a locally hosted copy.
+- `config_page.js` is generated. After editing config.html, **always run**:
+  `npm run config-page`. `tests/config_page.test.js` fails if the copy is
+  stale, if the page loses its controls, or if any `http(s)://` URL creeps back into it.
 
 ### Timeline Pin Management
 
