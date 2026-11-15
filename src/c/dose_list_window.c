@@ -4,15 +4,20 @@
 #include "appmessage.h"
 #include "ui_fonts.h"
 #include "time_fmt.h"
+#include "dose_log.h"
 #include <pebble.h>
 
 // ---------------------------------------------------------------------------
 // Dose row: one entry in the sorted list
 // ---------------------------------------------------------------------------
 
+// A dose that came due in the last day and was not marked stays as missed.
+#define MISSED_WINDOW_SECS (24 * 3600)
+
 typedef struct {
     uint8_t med_index;
     time_t  dose_time;
+    bool    missed;
 } DoseRow;
 
 static DoseRow  s_rows[MED_MAX];
@@ -47,9 +52,15 @@ static void build_rows(uint8_t skip_med_index, time_t skip_after) {
         if (skip_after > 0 && i == skip_med_index && skip_after >= now) {
             base = skip_after + 1;
         }
-        s_rows[s_row_count].med_index = i;
-        s_rows[s_row_count].dose_time = med_list_next_dose_time(med, base);
-        s_row_count++;
+        // One row per medication: a missed dose stands in for the next one.
+        time_t last = med_list_last_dose_time(med, now - MISSED_WINDOW_SECS, now);
+        bool missed = last > 0 && dose_log_covers((uint32_t)last)
+                      && !dose_log_is_marked(i, (uint32_t)last);
+        s_rows[s_row_count++] = (DoseRow){
+            .med_index = i,
+            .dose_time = missed ? last : med_list_next_dose_time(med, base),
+            .missed    = missed,
+        };
     }
 
     s_show_taker = false;
@@ -60,7 +71,7 @@ static void build_rows(uint8_t skip_med_index, time_t skip_after) {
         if (m && strcmp(m->taker, first->taker) != 0) { s_show_taker = true; break; }
     }
 
-    // Insertion sort by dose_time (at most 16 elements)
+    // Insertion sort by dose_time, so missed doses come first
     for (uint8_t i = 1; i < s_row_count; i++) {
         DoseRow key = s_rows[i];
         int j = (int)i - 1;
@@ -215,10 +226,23 @@ static int hour_width(char *clock, GFont font) {
     return w;
 }
 
-// "In 25 min · Murray", for rows drawn without the clock column.
-static void format_subtitle(time_t dose_time, const MedEntry *med, char *buf, size_t len) {
+// "In 25 min", or "Missed" for a missed dose.
+static void row_when(const DoseRow *row, char *buf, size_t len) {
+    if (row->missed) snprintf(buf, len, "Missed");
+    else             time_fmt_relative(row->dose_time, buf, len);
+}
+
+// "In 25 min · Murray" or "Missed 8:00 AM · Murray", for rows drawn without
+// the clock column.
+static void format_subtitle(const DoseRow *row, const MedEntry *med, char *buf, size_t len) {
     char when[24];
-    time_fmt_relative(dose_time, when, sizeof(when));
+    if (row->missed) {
+        char clock[12];
+        time_fmt_clock(row->dose_time, clock, sizeof(clock));
+        snprintf(when, sizeof(when), "Missed %s", clock);
+    } else {
+        row_when(row, when, sizeof(when));
+    }
     if (s_show_taker) snprintf(buf, len, "%s \xc2\xb7 %s", when, med->taker);
     else              snprintf(buf, len, "%s", when);
 }
@@ -236,7 +260,7 @@ static void layout_subtitles(GFont font, int width) {
         time_t t = s_rows[i].dose_time;
         if (!med || !row_has_clock(t)) continue;
         any = true;
-        time_fmt_relative(t, when, sizeof(when));
+        row_when(&s_rows[i], when, sizeof(when));
         when_w = MAX(when_w, text_width(when, font));
         time_fmt_clock(t, clock, sizeof(clock));
         int hw = hour_width(clock, font);
@@ -280,12 +304,12 @@ static void draw_subtitle(GContext *ctx, const DoseRow *row, const MedEntry *med
     int w = box.size.w;
     if (!s_show_clock || !row_has_clock(row->dose_time)) {
         char subtitle[SUBTITLE_LEN];
-        format_subtitle(row->dose_time, med, subtitle, sizeof(subtitle));
+        format_subtitle(row, med, subtitle, sizeof(subtitle));
         draw_sub(ctx, subtitle, font, box, 0, w);
         return;
     }
     char when[24], clock[12];
-    time_fmt_relative(row->dose_time, when, sizeof(when));
+    row_when(row, when, sizeof(when));
     time_fmt_clock(row->dose_time, clock, sizeof(clock));
     int clock_x = s_colon_x - hour_width(clock, font);
     draw_sub(ctx, when, font, box, 0, s_clock_dot_x);
@@ -328,9 +352,14 @@ static void draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index, v
     GRect sub_box = GRect(text_x, row_sub_y(), text_w, row_sub_h() - 2);
     if (!s_clock_checked) layout_subtitles(sub_font, subtitle_fit_w(sub_box, bounds.size.h));
 
-    graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
+    GColor title_color = highlighted ? GColorWhite : GColorBlack;
+#ifdef PBL_COLOR
+    if (row->missed && !highlighted) title_color = GColorDarkCandyAppleRed;
+#endif
+    graphics_context_set_text_color(ctx, title_color);
     graphics_draw_text(ctx, title, ui_font(UI_FONT_ROW_TITLE, s_scale),
                        GRect(text_x, ROW_TOP, text_w, row_title_h() - 2), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
     draw_subtitle(ctx, row, med, sub_font, sub_box);
 }
 
@@ -440,12 +469,12 @@ void dose_list_window_refresh_after(uint8_t med_index, time_t dose_time) {
     apply_refresh(med_index, dose_time);
 }
 
-// Called every minute: keep "In 25 min" current and drop doses that have passed.
+// Called every minute: keep "In 25 min" current and move passed doses to missed.
 void dose_list_window_tick(void) {
     if (!s_menu_layer) return;
     time_t now = time(NULL);
     for (uint8_t i = 0; i < s_row_count; i++) {
-        if (s_rows[i].dose_time < now - 60) {
+        if (!s_rows[i].missed && s_rows[i].dose_time < now - 60) {
             dose_list_window_refresh();
             return;
         }
