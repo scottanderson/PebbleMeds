@@ -53,7 +53,7 @@ The JS mirrors are testable without a Pebble emulator.
 
 The `MedEntry` struct is stored as raw binary blobs via `persist_write_data`/`persist_read_data` with `sizeof(MedEntry)`. **New fields must be appended at the END of the struct**, never inserted in the middle. Inserting a field shifts byte offsets of all subsequent fields, corrupting existing users' stored data on upgrade.
 
-- OK: add fields after `vibePattern`
+- OK: add fields after `paused`
 - NOT OK: insert fields between `lastTakenTs` and `shape` (done once, caused shape/color corruption mitigated by JSON sync)
 
 ### 2. Config Page Backward Compatibility (GitHub Pages)
@@ -76,6 +76,19 @@ Before the heartbeat fix, wakeup chain breaks (app crash, watch reboot) were per
 - `wakeup_schedule()` returns `E_RANGE` for times < 60 seconds from now
 - Wakeups may be cleared on watch reboot or app reinstall
 - There is NO "background app" concept in SDK 3/4 — the Wakeup API IS the background mechanism
+
+### Paused Medications
+
+A med can be paused from the config page list, which has an on/off switch for
+each med like the system Alarms list, or from the watch: the dose list's
+action menu has Pause, and a paused med's menu has only Resume. A paused med
+has `"paused": true` in its JSON and `paused` in `MedEntry`. It gets no
+wakeups, no snooze reminder and no timeline pins. The watch list shows it last
+as "Paused", grayed out on color screens.
+
+The watch sends `pause` or `resume` to the phone, which updates its saved
+config and the pins. Keep `collect_dose_events()`, `collectDoseEvents()` and
+`pushTimelinePins()` in step when this changes.
 
 ### Timeline Pin Management
 
