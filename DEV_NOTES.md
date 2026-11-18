@@ -20,10 +20,12 @@
 - `max_dose = has_snooze ? 6 : 7`
 - Heartbeat at `now + 6 * 3600` seconds; fires silently (no vibrate, just reschedules)
 - Each med can have one snoozed dose (key 22), so several doses can be
-  snoozed at once. The snooze slot wakes for the earliest one, and that
-  wakeup shows it. Another snooze already due wakes a minute later. A snooze
-  whose time passed while the watch was off also comes back in a minute,
-  unless it is more than 12 hours past (`SNOOZE_STALE_SECS`).
+  snoozed at once. The snooze slot wakes for the earliest one. A snooze
+  whose time passed while the watch was off comes back in a minute, unless
+  it is more than 12 hours past (`SNOOZE_STALE_SECS`).
+- A wakeup shows every dose due then, one after another in the same
+  reminder window (`detail_window_queue()`). Closing the reminder without an
+  answer snoozes the doses still waiting too.
 
 ### Persist Key Layout
 
