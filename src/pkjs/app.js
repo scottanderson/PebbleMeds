@@ -117,16 +117,19 @@ function undoDoseAction(medIndex, ts) {
   }
 
   var cfg = loadConfig();
-  var med = cfg && cfg.meds[medIndex];
-  if (!med || med.scheduleType !== 'interval') return;
-  var last = 0;
-  log.forEach(function (entry) {
-    if (entry.medIndex === medIndex && entry.status === 'taken' && entry.ts > last) last = entry.ts;
-  });
-  if (last) med.lastTakenTs = last;
-  else delete med.lastTakenTs;
-  saveConfig(cfg);
-  sendConfigToWatch(cfg);
+  if (!cfg) return;
+  var med = cfg.meds[medIndex];
+  if (med && med.scheduleType === 'interval') {
+    var last = 0;
+    log.forEach(function (entry) {
+      if (entry.medIndex === medIndex && entry.status === 'taken' && entry.ts > last) last = entry.ts;
+    });
+    if (last) med.lastTakenTs = last;
+    else delete med.lastTakenTs;
+    saveConfig(cfg);
+    sendConfigToWatch(cfg);
+  }
+  // Pushed again so the dose's pin gets its actions back.
   try {
     var timeline = require('./timeline');
     if (timeline && timeline.pushTimelinePins) timeline.pushTimelinePins(cfg);
@@ -284,21 +287,23 @@ Pebble.addEventListener('appmessage', function (e) {
       }
 
       logDoseAction(action, medIndex, doseTs);
+      if (action !== 'taken' && action !== 'skipped') return;
 
-      if (action === 'taken') {
-        var cfg = loadConfig();
-        if (cfg && cfg.meds[medIndex] && cfg.meds[medIndex].scheduleType === 'interval') {
-          cfg.meds[medIndex].lastTakenTs = doseTs;
-          saveConfig(cfg);
-          sendConfigToWatch(cfg);
-          try {
-            var timeline = require('./timeline');
-            if (timeline && timeline.pushTimelinePins) {
-              timeline.pushTimelinePins(cfg);
-            }
-          } catch (e) {}
-        }
+      var cfg = loadConfig();
+      if (!cfg) return;
+      var med = cfg.meds[medIndex];
+      if (action === 'taken' && med && med.scheduleType === 'interval') {
+        med.lastTakenTs = doseTs;
+        saveConfig(cfg);
+        sendConfigToWatch(cfg);
       }
+      // Pushed again so the answered dose's pin shows the answer.
+      try {
+        var timeline = require('./timeline');
+        if (timeline && timeline.pushTimelinePins) {
+          timeline.pushTimelinePins(cfg);
+        }
+      } catch (e) {}
     }
   } catch (e) {
     console.log('AppMessage handler failed: ' + e.message);
