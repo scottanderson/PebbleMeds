@@ -1,5 +1,6 @@
 #include "dose_list_window.h"
-#include "detail_window.h"
+#include "dose_action.h"
+#include "confirm_dialog.h"
 #include "med_list.h"
 #include "appmessage.h"
 #include "ui_fonts.h"
@@ -16,7 +17,7 @@
 
 typedef struct {
     uint8_t med_index;
-    time_t  dose_time;
+    time_t  dose_time;  // 0 for a med that is off
     bool    missed;
 } DoseRow;
 
@@ -54,11 +55,11 @@ static void build_rows(uint8_t skip_med_index, time_t skip_after) {
         }
         // One row per medication: a missed dose stands in for the next one.
         time_t last = med_list_last_dose_time(med, now - MISSED_WINDOW_SECS, now);
-        bool missed = last > 0 && dose_log_covers((uint32_t)last)
+        bool missed = !med->paused && last > 0 && dose_log_covers((uint32_t)last)
                       && !dose_log_is_marked(i, (uint32_t)last);
         s_rows[s_row_count++] = (DoseRow){
             .med_index = i,
-            .dose_time = missed ? last : med_list_next_dose_time(med, base),
+            .dose_time = med->paused ? 0 : missed ? last : med_list_next_dose_time(med, base),
             .missed    = missed,
         };
     }
@@ -71,11 +72,12 @@ static void build_rows(uint8_t skip_med_index, time_t skip_after) {
         if (m && strcmp(m->taker, first->taker) != 0) { s_show_taker = true; break; }
     }
 
-    // Insertion sort by dose_time, so missed doses come first
+    // Insertion sort by dose_time: missed doses first, meds that are off last
     for (uint8_t i = 1; i < s_row_count; i++) {
         DoseRow key = s_rows[i];
         int j = (int)i - 1;
-        while (j >= 0 && s_rows[j].dose_time > key.dose_time) {
+        while (j >= 0 && key.dose_time != 0 &&
+               (s_rows[j].dose_time == 0 || s_rows[j].dose_time > key.dose_time)) {
             s_rows[j + 1] = s_rows[j];
             j--;
         }
@@ -226,10 +228,11 @@ static int hour_width(char *clock, GFont font) {
     return w;
 }
 
-// "In 25 min", or "Missed" for a missed dose.
+// "In 25 min", "Missed" for a missed dose, or "Off" for a med that is off.
 static void row_when(const DoseRow *row, char *buf, size_t len) {
-    if (row->missed) snprintf(buf, len, "Missed");
-    else             time_fmt_relative(row->dose_time, buf, len);
+    if (row->missed)              snprintf(buf, len, "Missed");
+    else if (row->dose_time == 0) snprintf(buf, len, "Off");
+    else                          time_fmt_relative(row->dose_time, buf, len);
 }
 
 // "In 25 min · Murray" or "Missed 8:00 AM · Murray", for rows drawn without
@@ -363,9 +366,49 @@ static void draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index, v
     draw_subtitle(ctx, row, med, sub_font, sub_box);
 }
 
+// ---------------------------------------------------------------------------
+// Row actions: Select opens an action menu, as on a system alarm
+// ---------------------------------------------------------------------------
+
+static DoseRow s_menu_row;
+
+// A dose further ahead than the early limit can't be marked yet.
+static bool dose_can_act(time_t dose_time) {
+    uint16_t limit = med_list_get_settings()->earlyLimitMins;
+    return limit == 0 || dose_time - time(NULL) <= (time_t)limit * 60;
+}
+
+static void row_action_performed(ActionMenu *menu, const ActionMenuItem *item, void *ctx) {
+    // Handled in row_menu_did_close, once the menu has closed.
+}
+
+static void row_menu_did_close(ActionMenu *menu, const ActionMenuItem *performed, void *ctx) {
+    action_menu_hierarchy_destroy(action_menu_get_root_level(menu), NULL, NULL);
+    if (!performed) return;
+    DoseAction action = (DoseAction)(uintptr_t)action_menu_item_get_action_data(performed);
+    dose_action_mark(s_menu_row.med_index, s_menu_row.dose_time, action);
+    dose_list_window_refresh_after(s_menu_row.med_index, s_menu_row.dose_time);
+    confirm_dialog_push(action == DOSE_TAKEN ? "Taken" : "Skipped");
+}
+
 static void select_click(MenuLayer *layer, MenuIndex *index, void *ctx) {
     if (s_row_count == 0) return;
-    detail_window_push(s_rows[index->row].med_index, s_rows[index->row].dose_time, DETAIL_MODE_BROWSE);
+    s_menu_row = s_rows[index->row];
+    if (s_menu_row.dose_time == 0 || !dose_can_act(s_menu_row.dose_time)) return;
+
+    ActionMenuLevel *root = action_menu_level_create(2);
+    action_menu_level_add_action(root, "Taken", row_action_performed, (void *)(uintptr_t)DOSE_TAKEN);
+    action_menu_level_add_action(root, "Skip", row_action_performed, (void *)(uintptr_t)DOSE_SKIPPED);
+    ActionMenuConfig config = {
+        .root_level = root,
+        .colors = {
+            .background = PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack),
+            .foreground = GColorWhite,
+        },
+        .align     = ActionMenuAlignCenter,
+        .did_close = row_menu_did_close,
+    };
+    action_menu_open(&config);
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +517,7 @@ void dose_list_window_tick(void) {
     if (!s_menu_layer) return;
     time_t now = time(NULL);
     for (uint8_t i = 0; i < s_row_count; i++) {
-        if (!s_rows[i].missed && s_rows[i].dose_time < now - 60) {
+        if (!s_rows[i].missed && s_rows[i].dose_time != 0 && s_rows[i].dose_time < now - 60) {
             dose_list_window_refresh();
             return;
         }

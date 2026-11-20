@@ -52,7 +52,7 @@ static uint8_t collect_dose_events(time_t now, DoseEvent *out, uint8_t max_out) 
 
     for (uint8_t i = 0; i < med_count && count < max_out; i++) {
         MedEntry *med = med_list_get(i);
-        if (!med) continue;
+        if (!med || med->paused) continue;
 
         time_t t = med_list_next_dose_time(med, now);
         for (int occ = 0; occ < 4 && t > 0 && t <= horizon && count < max_out; occ++) {
@@ -176,11 +176,13 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
         notifications_schedule_wakeups();
         // Marked from the list while snoozed: nothing to remind.
         if (dose_log_is_marked(med_index, (uint32_t)dose_ts)) return;
-        light_enable_interaction();
         MedEntry *snooze_med = med_list_get(med_index);
+        // Turned off while snoozed: nothing to remind.
+        if (snooze_med && snooze_med->paused) return;
+        light_enable_interaction();
         fire_vibe(snooze_med ? snooze_med->vibePattern : MED_VIBE_SHORT);
         if (snooze_med) {
-            detail_window_push(med_index, dose_ts, DETAIL_MODE_ALERT);
+            detail_window_push(med_index, dose_ts);
         } else {
             dose_list_window_push();  // fallback: med was removed since snooze set
         }
@@ -196,7 +198,7 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
     uint8_t med_count = med_list_count();
     for (uint8_t i = 0; i < med_count; i++) {
         MedEntry *med = med_list_get(i);
-        if (!med) continue;
+        if (!med || med->paused) continue;
         // next_dose_time after (now - DUE_WINDOW - 1) gives the dose in the window
         time_t next = med_list_next_dose_time(med, now - DUE_WINDOW_SECS - 1);
         if (next >= now - DUE_WINDOW_SECS && next <= now + 60) {
@@ -224,7 +226,7 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
 
     light_enable_interaction();
     fire_vibe(med_list_get(due_indices[0]) ? med_list_get(due_indices[0])->vibePattern : MED_VIBE_SHORT);
-    detail_window_push(due_indices[0], due_times[0], DETAIL_MODE_ALERT);
+    detail_window_push(due_indices[0], due_times[0]);
     notifications_schedule_wakeups();
 }
 

@@ -170,6 +170,10 @@ including wakeups, refreshes it. It adds one slice per upcoming dose (up to 8),
 each expiring at its dose time, so the glance moves on while the app is
 closed. Aplite has no glances.
 
+### Medications That Are Off
+
+The config page list has an on/off switch for each med, like the system Alarms list. A med that is off has `"paused": true` in its JSON and `paused` in `MedEntry`. It gets no wakeups, no snooze reminder, no timeline pins and no launcher glance. The watch list shows it last as "Off". Keep `collect_dose_events()`, `collectDoseEvents()` and `pushTimelinePins()` in step when this changes.
+
 ### Timeline Pin Management
 
 Pin IDs use the format `pebble-meds-{medId}-{timestamp}`. The `medId` is a stable UUID v4 assigned at medication creation (`config.html:saveMed()`) and persisted through edits. The `pushTimelinePins()` function in `timeline.js` stores a `medId → [pin IDs]` map in localStorage (`pebble_meds_timeline_pin_ids`). Before inserting new pins, it deletes all previously-tracked pins via `Pebble.deleteTimelinePin()` (available in Rebble app v1.0.6.8+). Backward-compat migration assigns `medId` to existing meds that lack one on first push.
@@ -216,8 +220,12 @@ The LSP can't resolve `pebble.h` or Pebble SDK types. These are NOT real errors 
 The detail window follows the PebbleOS alarm popup (`alarm_popup.c`):
 
 - Up = Snooze, Select = Taken, Down = Skip, with the system action bar icons.
-  In alert mode Back also snoozes. From the list there is no snooze, so Up
-  does nothing and Back just closes.
+  Back also snoozes.
+- The dose list follows the Alarms app list: Select on a row opens an
+  `ActionMenu` (Taken, Skip) instead of the reminder screen. Both paths mark
+  doses through `dose_action_mark()`.
+- A row due further ahead than the Early Doses limit (`earlyLimitMins`) opens
+  no menu, and a med that is off opens none either.
 - The backlight is left to the system (the wakeup handler already lights it
   briefly), so an unanswered reminder costs no extra battery. The reminder
   stays up until answered; if it closes some other way, `window_unload`

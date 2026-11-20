@@ -49,6 +49,8 @@ typedef struct {
     GColor       color;
     // Alert
     uint8_t      vibePattern;  // MedVibePattern; 0 = short (default)
+    // Off in the config page: no reminders, listed last as "Off". Last, so stored entries still load.
+    bool         paused;
 } MedEntry;
 
 typedef struct {
