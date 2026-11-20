@@ -23,3 +23,8 @@ DoseLogEntry dose_log_get(uint8_t index);  // 0 = oldest, count-1 = newest
 bool         dose_log_is_marked(uint8_t med_index, uint32_t ts);
 // True if the log still reaches back to this dose time.
 bool         dose_log_covers(uint32_t ts);
+
+// Newest Taken or Skipped entry for a med with a dose time at or after since.
+bool         dose_log_last_mark(uint8_t med_index, uint32_t since, DoseLogEntry *out);
+// Removes the Taken and Skipped entries for one dose.
+void         dose_log_clear_mark(uint8_t med_index, uint32_t ts);
