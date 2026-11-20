@@ -170,9 +170,11 @@ including wakeups, refreshes it. It adds one slice per upcoming dose (up to 8),
 each expiring at its dose time, so the glance moves on while the app is
 closed. Aplite has no glances.
 
-### Medications That Are Off
+### Paused Medications
 
-The config page list has an on/off switch for each med, like the system Alarms list. A med that is off has `"paused": true` in its JSON and `paused` in `MedEntry`. It gets no wakeups, no snooze reminder, no timeline pins and no launcher glance. The watch list shows it last as "Off". Keep `collect_dose_events()`, `collectDoseEvents()` and `pushTimelinePins()` in step when this changes.
+A med can be paused from the config page list, which has an on/off switch for each med like the system Alarms list, or from the watch: the dose list's action menu has Pause, and a paused med's menu has only Resume. A paused med has `"paused": true` in its JSON and `paused` in `MedEntry`. It gets no wakeups, no snooze reminder, no timeline pins and no launcher glance. The watch list shows it last, grayed out, as "Paused".
+
+The watch sends `pause` or `resume` to the phone, which updates its saved config and the pins. Keep `collect_dose_events()`, `collectDoseEvents()` and `pushTimelinePins()` in step when this changes.
 
 ### Timeline Pin Management
 
@@ -225,7 +227,7 @@ The detail window follows the PebbleOS alarm popup (`alarm_popup.c`):
   `ActionMenu` (Taken, Skip) instead of the reminder screen. Both paths mark
   doses through `dose_action_mark()`.
 - A row due further ahead than the Early Doses limit (`earlyLimitMins`) has
-  no Taken or Skip, so its menu only opens to undo. A med that is off has no menu.
+  no Taken or Skip. A paused med's menu has only Resume.
 - The row menu adds "Undo Taken 8:00 AM" (or "Undo Skipped") for the med's
   latest mark from the last 24 hours. `dose_action_clear()` removes the log
   entry and sends `undo` to the phone, which drops it from its log and, for an

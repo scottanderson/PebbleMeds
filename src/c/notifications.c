@@ -177,7 +177,7 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
         // Marked from the list while snoozed: nothing to remind.
         if (dose_log_is_marked(med_index, (uint32_t)dose_ts)) return;
         MedEntry *snooze_med = med_list_get(med_index);
-        // Turned off while snoozed: nothing to remind.
+        // Paused while snoozed: nothing to remind.
         if (snooze_med && snooze_med->paused) return;
         light_enable_interaction();
         fire_vibe(snooze_med ? snooze_med->vibePattern : MED_VIBE_SHORT);

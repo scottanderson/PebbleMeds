@@ -116,6 +116,20 @@ function undoDoseAction(medIndex, ts) {
   } catch (e) {}
 }
 
+// Pause or resume from the watch: keep the phone's copy in step and redo the pins.
+function setMedPaused(medIndex, paused) {
+  var cfg = loadConfig();
+  var med = cfg && cfg.meds[medIndex];
+  if (!med) return;
+  if (paused) med.paused = true;
+  else delete med.paused;
+  saveConfig(cfg);
+  try {
+    var timeline = require('./timeline');
+    if (timeline && timeline.pushTimelinePins) timeline.pushTimelinePins(cfg);
+  } catch (e) {}
+}
+
 function getConfigUrl() {
   var page = decodeURIComponent(configPage.HTML);
 
@@ -244,6 +258,11 @@ Pebble.addEventListener('appmessage', function (e) {
 
       if (action === 'undo') {
         undoDoseAction(medIndex, doseTs);
+        return;
+      }
+
+      if (action === 'pause' || action === 'resume') {
+        setMedPaused(medIndex, action === 'pause');
         return;
       }
 

@@ -228,10 +228,10 @@ static int hour_width(char *clock, GFont font) {
     return w;
 }
 
-// "In 25 min", "Missed" for a missed dose, or "Off" for a med that is off.
+// "In 25 min", "Missed" for a missed dose, or "Paused" for a paused med.
 static void row_when(const DoseRow *row, char *buf, size_t len) {
     if (row->missed)              snprintf(buf, len, "Missed");
-    else if (row->dose_time == 0) snprintf(buf, len, "Off");
+    else if (row->dose_time == 0) snprintf(buf, len, "Paused");
     else                          time_fmt_relative(row->dose_time, buf, len);
 }
 
@@ -347,7 +347,9 @@ static void draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index, v
 
     // Pill icon area
     GRect pill_bounds = GRect(pill_x, (bounds.size.h - 20) / 2, 20, 20);
-    draw_pill_mini(ctx, pill_bounds, med->shape, med->color, highlighted);
+    bool paused = (row->dose_time == 0);
+    draw_pill_mini(ctx, pill_bounds, med->shape,
+                   paused ? PBL_IF_COLOR_ELSE(GColorLightGray, med->color) : med->color, highlighted);
 
     // Title: what. Subtitle: when, and for whom if more than one person.
     const char *title = settings->privacyMode ? "Medication" : med->name;
@@ -358,11 +360,14 @@ static void draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index, v
     GColor title_color = highlighted ? GColorWhite : GColorBlack;
 #ifdef PBL_COLOR
     if (row->missed && !highlighted) title_color = GColorDarkCandyAppleRed;
+    // A paused med is grayed out, as a disabled alarm is.
+    if (paused && !highlighted) title_color = GColorDarkGray;
 #endif
     graphics_context_set_text_color(ctx, title_color);
     graphics_draw_text(ctx, title, ui_font(UI_FONT_ROW_TITLE, s_scale),
                        GRect(text_x, ROW_TOP, text_w, row_title_h() - 2), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-    graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
+    graphics_context_set_text_color(ctx, highlighted ? GColorWhite
+                                         : PBL_IF_COLOR_ELSE(paused ? GColorDarkGray : GColorBlack, GColorBlack));
     draw_subtitle(ctx, row, med, sub_font, sub_box);
 }
 
@@ -371,6 +376,10 @@ static void draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index, v
 // ---------------------------------------------------------------------------
 
 static DoseRow s_menu_row;
+
+// Action data for the pause items, after the DoseAction values and undo.
+#define ROW_PAUSE  4
+#define ROW_RESUME 5
 
 // Aplite is short on memory, so it has no undo, as it has no snooze menu.
 #if !defined(PBL_PLATFORM_APLITE)
@@ -395,6 +404,12 @@ static void row_menu_did_close(ActionMenu *menu, const ActionMenuItem *performed
     action_menu_hierarchy_destroy(action_menu_get_root_level(menu), NULL, NULL);
     if (!performed) return;
     uintptr_t choice = (uintptr_t)action_menu_item_get_action_data(performed);
+    if (choice == ROW_PAUSE || choice == ROW_RESUME) {
+        dose_action_set_paused(s_menu_row.med_index, choice == ROW_PAUSE);
+        dose_list_window_refresh();
+        confirm_dialog_push(choice == ROW_PAUSE ? "Paused" : "Resumed");
+        return;
+    }
 #ifdef HAS_UNDO
     if (choice == ROW_UNDO) {
         dose_action_clear(s_undo_mark.med_index, (time_t)s_undo_mark.ts);
@@ -409,19 +424,12 @@ static void row_menu_did_close(ActionMenu *menu, const ActionMenuItem *performed
     confirm_dialog_push(action == DOSE_TAKEN ? "Taken" : "Skipped");
 }
 
-static void select_click(MenuLayer *layer, MenuIndex *index, void *ctx) {
-    if (s_row_count == 0) return;
-    s_menu_row = s_rows[index->row];
-    if (s_menu_row.dose_time == 0) return;
-
-    ActionMenuLevel *root = action_menu_level_create(3);
-    int items = 0;
+// Taken and Skip once the dose is within the early limit, then undo for the latest mark.
+static void add_dose_items(ActionMenuLevel *root) {
     if (dose_can_act(s_menu_row.dose_time)) {
         action_menu_level_add_action(root, "Taken", row_action_performed, (void *)(uintptr_t)DOSE_TAKEN);
         action_menu_level_add_action(root, "Skip", row_action_performed, (void *)(uintptr_t)DOSE_SKIPPED);
-        items += 2;
     }
-
 #ifdef HAS_UNDO
     // Offer to undo this med's latest mark from the last day, e.g. "Undo Taken 8:00 AM".
     uint32_t since = (uint32_t)(time(NULL) - UNDO_WINDOW_SECS);
@@ -431,12 +439,21 @@ static void select_click(MenuLayer *layer, MenuIndex *index, void *ctx) {
         snprintf(s_undo_label, sizeof(s_undo_label), "Undo %s %s",
                  s_undo_mark.action == DOSE_TAKEN ? "Taken" : "Skipped", clock);
         action_menu_level_add_action(root, s_undo_label, row_action_performed, (void *)(uintptr_t)ROW_UNDO);
-        items++;
     }
 #endif
-    if (items == 0) {
-        action_menu_hierarchy_destroy(root, NULL, NULL);
-        return;
+}
+
+static void select_click(MenuLayer *layer, MenuIndex *index, void *ctx) {
+    if (s_row_count == 0) return;
+    s_menu_row = s_rows[index->row];
+
+    ActionMenuLevel *root = action_menu_level_create(4);
+    // A paused med can only be resumed, as a disabled alarm can only be enabled.
+    if (s_menu_row.dose_time == 0) {
+        action_menu_level_add_action(root, "Resume", row_action_performed, (void *)(uintptr_t)ROW_RESUME);
+    } else {
+        add_dose_items(root);
+        action_menu_level_add_action(root, "Pause", row_action_performed, (void *)(uintptr_t)ROW_PAUSE);
     }
     ActionMenuConfig config = {
         .root_level = root,

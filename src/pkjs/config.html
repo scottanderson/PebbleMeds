@@ -125,6 +125,7 @@
   }
 
   .med-item-info { flex: 1; min-width: 0; }
+  .med-item.paused .med-item-info,
   .med-item.paused .med-item-swatch { opacity: 0.45; }
 
   .med-item-name {
@@ -942,7 +943,7 @@ function buildMedItem(med, index) {
   } else {
     subParts.push("Every " + med.intervalHours + "h");
   }
-  if (med.paused) subParts.unshift("Off");
+  if (med.paused) subParts.unshift("Paused");
   sub.textContent = subParts.join(" · ");
 
   info.appendChild(nameEl);
@@ -963,10 +964,10 @@ function buildMedItem(med, index) {
   delBtn.style.color = "#e94560";
   delBtn.onclick = (function (i) { return function () { deleteMed(i); }; })(index);
 
-  // On/off switch, as in the system Alarms list: off keeps the med but stops its reminders.
+  // On/off switch, as in the system Alarms list: off pauses the med's reminders.
   var toggle = document.createElement("label");
   toggle.className = "toggle-wrap";
-  toggle.title = "Reminders on or off";
+  toggle.title = "Pause or resume reminders";
   var toggleInput = document.createElement("input");
   toggleInput.type = "checkbox";
   toggleInput.checked = !med.paused;
