@@ -2,6 +2,7 @@
 #include "med_list.h"
 #include "detail_window.h"
 #include "dose_list_window.h"
+#include "dose_log.h"
 #include <pebble.h>
 
 #define WAKEUP_COOKIE_DOSE      0
@@ -213,8 +214,32 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
 // Public: Timeline pin action launch handler
 // ---------------------------------------------------------------------------
 
+// Launch code bits, packed by launchCode() in timeline.js:
+// 0-1 action (unused), 2-5 med index, 6-31 dose minutes since LAUNCH_EPOCH.
+#define LAUNCH_EPOCH  1672531200  // 2023-01-01 UTC
+
 void notifications_handle_timeline_action(uint32_t launch_code) {
-    // launch_code 1 = Taken, 2 = Snooze (from Timeline pin actions, Phase 4)
-    APP_LOG(APP_LOG_LEVEL_INFO, "Timeline action: %lu", (unsigned long)launch_code);
-    dose_list_window_push();
+    uint8_t med_index = (launch_code >> 2) & 0xF;
+    time_t  dose_ts   = LAUNCH_EPOCH + (time_t)(launch_code >> 6) * 60;
+
+    // Pins from older versions carry only the action.
+    const MedEntry *med = med_list_get(med_index);
+    if (launch_code < 64 || !med) {
+        dose_list_window_push();
+        return;
+    }
+
+    // The code drops the seconds, which an interval dose can have.
+    time_t real = med_list_next_dose_time(med, dose_ts - 1);
+    if (real >= dose_ts && real < dose_ts + 60) dose_ts = real;
+
+    // A dose already answered in that minute just opens the list.
+    for (int i = (int)dose_log_count() - 1; i >= 0; i--) {
+        DoseLogEntry e = dose_log_get((uint8_t)i);
+        if (e.med_index == med_index && e.ts / 60 == (uint32_t)dose_ts / 60 && e.action != DOSE_SNOOZED) {
+            dose_list_window_push();
+            return;
+        }
+    }
+    dose_list_window_push_menu(med_index, dose_ts);
 }
