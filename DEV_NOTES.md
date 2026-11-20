@@ -97,7 +97,9 @@ below 2^31 until about 2086. `launchCode()` in `timeline.js` and
 list with that dose's action menu open, or just the list if the dose is
 already answered. The code drops the seconds, so the watch matches it to the
 med's dose in that minute. Codes below 64 come from older pins or a med index
-above 15, and open the dose list.
+above 15, and open the dose list. After Taken or Skipped, the phone pushes the
+pins again, and the answered dose's pin shows the answer. Doses answered in
+the last 24 hours keep their pin, even after the dose time.
 
 ### Timeline Pin Cleanup API
 

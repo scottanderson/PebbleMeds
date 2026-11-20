@@ -308,3 +308,52 @@ describe('launchCode', function () {
     expect(launchCode(1, 16, FIXED_TS)).toBe(1);
   });
 });
+
+describe('pushTimelinePins answered doses', function () {
+  test('uses the dose log to show answered doses', function () {
+    storedItems = {
+      pebble_meds_log: JSON.stringify([
+        { medIndex: 0, ts: FIXED_TS, status: 'skipped' },
+        { medIndex: 0, ts: FIXED_TS + 3600, status: 'snooze' },
+      ]),
+    };
+    schedule.getNextDoseTimes.mockReturnValue([FIXED_TS, FIXED_TS + 3600]);
+    Pebble.insertTimelinePin.mockClear();
+    pushTimelinePins({ meds: [{ medId: MED_A_ID, name: 'A', taker: 'Self' }], settings: {} });
+    var pins = Pebble.insertTimelinePin.mock.calls.map(function (c) { return JSON.parse(c[0]); });
+    expect(pins[0].layout.subtitle).toBe('Skipped');
+    expect(pins[1].layout.subtitle).toBeUndefined();
+  });
+
+  test('keeps the pin of a dose answered after its time', function () {
+    storedItems = {
+      pebble_meds_log: JSON.stringify([
+        { medIndex: 0, ts: FIXED_TS, status: 'taken' },
+        { medIndex: 0, ts: FIXED_TS - 2 * 86400, status: 'taken' },
+      ]),
+    };
+    var spy = jest.spyOn(Date, 'now').mockReturnValue((FIXED_TS + 600) * 1000);
+    schedule.getNextDoseTimes.mockReturnValue([FIXED_TS + 86400]);
+    Pebble.insertTimelinePin.mockClear();
+    pushTimelinePins({ meds: [{ medId: MED_A_ID, name: 'A', taker: 'Self' }], settings: {} });
+    spy.mockRestore();
+    var pins = Pebble.insertTimelinePin.mock.calls.map(function (c) { return JSON.parse(c[0]); });
+    expect(pins).toHaveLength(2);
+    expect(pins[0].time).toBe(new Date(FIXED_TS * 1000).toISOString());
+    expect(pins[0].layout.subtitle).toBe('Taken');
+  });
+});
+
+describe('buildPin answered', function () {
+  var med = { medId: MED_A_ID, name: 'A', taker: 'Self' };
+
+  test('a taken dose shows Taken and keeps its action', function () {
+    var pin = buildPin(med, FIXED_TS, false, 0, 'taken');
+    expect(pin.layout.subtitle).toBe('Taken');
+    expect(pin.actions).toHaveLength(1);
+  });
+
+  test('a skipped dose shows Skipped', function () {
+    expect(buildPin(med, FIXED_TS, false, 0, 'skipped').layout.subtitle).toBe('Skipped');
+  });
+});
