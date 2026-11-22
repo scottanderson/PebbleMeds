@@ -5,6 +5,7 @@
 #include "appmessage.h"
 #include "notifications.h"
 #include "dose_log.h"
+#include "glance.h"
 
 // ---------------------------------------------------------------------------
 // Launch reason handling
@@ -64,6 +65,7 @@ static void init(void) {
 static void deinit(void) {
   tick_timer_service_unsubscribe();
   // Persist current medication list and state before exit.
+  glance_update();
   dose_log_deinit();
   med_list_deinit();
   appmessage_deinit();
