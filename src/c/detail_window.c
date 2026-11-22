@@ -87,6 +87,12 @@ static bool               s_action_taken;
 static bool               s_entry_done;     // prevents entry anim replaying
 static GRect              s_canvas_target_frame;
 
+// Doses due at the same time wait here and follow the current reminder.
+static uint8_t            s_next_med[MED_MAX];
+static time_t             s_next_dose[MED_MAX];
+static uint8_t            s_next_count;
+static bool               s_alert_on_appear;
+
 // ---------------------------------------------------------------------------
 // Text
 // ---------------------------------------------------------------------------
@@ -258,9 +264,31 @@ static void alert_repeat_cb(void *ctx) {
 // Actions: like the system alarm, close the reminder and confirm the result
 // ---------------------------------------------------------------------------
 
+// Shows the next waiting dose in this window. False when none is left.
+static bool show_next_dose(void) {
+    if (s_next_count == 0) return false;
+    s_med_index = s_next_med[0];
+    s_dose_time = s_next_dose[0];
+    s_next_count--;
+    memmove(s_next_med,  s_next_med + 1,  s_next_count * sizeof(s_next_med[0]));
+    memmove(s_next_dose, s_next_dose + 1, s_next_count * sizeof(s_next_dose[0]));
+    s_revealed        = false;
+    s_action_taken    = false;
+    s_entry_done      = false;
+    s_alert_on_appear = true;
+    s_alert_repeats   = 0;
+    stop_alert_repeat();
+    s_alert_timer = app_timer_register(ALERT_REPEAT_MS, alert_repeat_cb, NULL);
+    update_text();
+    layer_mark_dirty(s_canvas_layer);
+    return true;
+}
+
+// The next waiting dose shows when the confirmation closes.
 static void finish(const char *confirmation) {
     s_action_taken = true;
     confirm_dialog_push(confirmation);
+    if (show_next_dose()) return;
     window_stack_remove(s_window, false);
 }
 
@@ -507,7 +535,11 @@ static void window_load(Window *window) {
 }
 
 static void window_appear(Window *window) {
-    if (s_entry_done) return;   // only once per push
+    if (s_alert_on_appear) {
+        s_alert_on_appear = false;
+        notifications_alert(s_med_index);
+    }
+    if (s_entry_done) return;   // only once per dose
     s_entry_done = true;
 
     GRect from_frame    = s_canvas_target_frame;
@@ -530,6 +562,12 @@ static void window_unload(Window *window) {
         dose_log_record(s_med_index, DOSE_SNOOZED, (uint32_t)s_dose_time);
         notifications_schedule_snooze(s_med_index, s_dose_time);
     }
+    // Doses still waiting are snoozed too.
+    for (uint8_t i = 0; i < s_next_count; i++) {
+        dose_log_record(s_next_med[i], DOSE_SNOOZED, (uint32_t)s_next_dose[i]);
+        notifications_schedule_snooze(s_next_med[i], s_next_dose[i]);
+    }
+    s_next_count = 0;
 
     action_bar_layer_destroy(s_action_bar);
     s_action_bar = NULL;
@@ -562,6 +600,8 @@ void detail_window_push(uint8_t med_index, time_t dose_time) {
     s_entry_done   = false;
     s_prop_anim    = NULL;
     s_alert_repeats = 0;
+    s_next_count   = 0;
+    s_alert_on_appear = false;
     s_alert_timer  = app_timer_register(ALERT_REPEAT_MS, alert_repeat_cb, NULL);
 
     s_window = window_create();
@@ -575,4 +615,11 @@ void detail_window_push(uint8_t med_index, time_t dose_time) {
 
 void detail_window_tick(void) {
     if (s_window && window_is_loaded(s_window)) update_text();
+}
+
+void detail_window_queue(uint8_t med_index, time_t dose_time) {
+    if (s_next_count >= MED_MAX) return;
+    s_next_med[s_next_count]  = med_index;
+    s_next_dose[s_next_count] = dose_time;
+    s_next_count++;
 }
