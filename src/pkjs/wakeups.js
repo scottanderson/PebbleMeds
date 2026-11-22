@@ -29,6 +29,7 @@ var MAX_OCC_PER_MED = 4;
 var HORIZON_SECS          = 7 * 24 * 3600;  // 7-day horizon for weekly schedules
 var RANGE_MIN_SECS        = 60;             // wakeup_schedule rejects times < 60s from now
 var HEARTBEAT_INTERVAL_SECS = 6 * 3600;     // safety-net recovery window
+var SNOOZE_STALE_SECS     = 12 * 3600;    // a snooze further past is dropped
 
 // ---------------------------------------------------------------------------
 // collectDoseEvents(meds, now) → sorted array of { ts, medIndex }
@@ -74,10 +75,13 @@ function collectDoseEvents(meds, now) {
 //     slots from 8 to 7, or from 7 to 6 when a snooze is also pending)
 //   - When a snooze is pending, reserves 1 additional slot for it
 //
-// pendingSnoozeTs: pass 0 or null when no snooze is pending.
+// pendingSnoozeTs: the earliest snoozed dose's time, or 0 or null when no
+// dose is snoozed. A time already past wakes a minute from now. A time more
+// than 12 hours past is dropped, like SNOOZE_STALE_SECS in C.
 // ---------------------------------------------------------------------------
 function planWakeups(meds, now, pendingSnoozeTs) {
-  var hasSnooze = !!(pendingSnoozeTs && pendingSnoozeTs > now);
+  var hasSnooze = !!(pendingSnoozeTs && pendingSnoozeTs >= now - SNOOZE_STALE_SECS);
+  if (hasSnooze && pendingSnoozeTs < now + 60) pendingSnoozeTs = now + 60;
   var maxDose   = hasSnooze ? 6 : 7;  // 8 total - 1 heartbeat - (1 snooze?)
 
   if (meds.length === 0) {

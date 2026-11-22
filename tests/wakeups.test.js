@@ -301,11 +301,17 @@ describe('planWakeups - snooze slot reservation', function () {
     expect(result.filter(function (w) { return w.type === 'heartbeat'; }).length).toBe(1);
   });
 
-  test('expired snooze is not included', function () {
+  test('a snooze time already past wakes a minute from now', function () {
     var expiredSnooze = NOW - 60;  // 1 minute in the past
     var meds = [fixedMed(12)];
     var result = planWakeups(meds, NOW, expiredSnooze);
-    expect(result.filter(function (w) { return w.type === 'snooze'; }).length).toBe(0);
+    var snoozes = result.filter(function (w) { return w.type === 'snooze'; });
+    expect(snoozes).toEqual([{ ts: NOW + 60, type: 'snooze' }]);
+  });
+
+  test('a snooze more than 12 hours past is dropped', function () {
+    var result = planWakeups([fixedMed(12)], NOW, NOW - 12 * 3600 - 1);
+    expect(result.filter(function (w) { return w.type === 'snooze'; })).toEqual([]);
   });
 
   test('snooze is always just before the heartbeat, regardless of its timestamp', function () {
