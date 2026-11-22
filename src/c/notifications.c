@@ -179,7 +179,7 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
         notifications_alert(med_index);
         MedEntry *snooze_med = med_list_get(med_index);
         if (snooze_med) {
-            detail_window_push(med_index, dose_ts, DETAIL_MODE_ALERT);
+            detail_window_push(med_index, dose_ts);
         } else {
             dose_list_window_push();  // fallback: med was removed since snooze set
         }
@@ -222,7 +222,7 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
     }
 
     notifications_alert(due_indices[0]);
-    detail_window_push(due_indices[0], due_times[0], DETAIL_MODE_ALERT);
+    detail_window_push(due_indices[0], due_times[0]);
     notifications_schedule_wakeups();
 }
 

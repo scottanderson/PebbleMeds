@@ -3,6 +3,7 @@
 #include "appmessage.h"
 #include "notifications.h"
 #include "dose_log.h"
+#include "dose_action.h"
 #include "ui_fonts.h"
 #include "time_fmt.h"
 #include "confirm_dialog.h"
@@ -81,15 +82,10 @@ static uint8_t            s_alert_repeats;
 
 static uint8_t            s_med_index;
 static time_t             s_dose_time;
-static DetailWindowMode   s_mode;
 static bool               s_revealed;
-static bool               s_can_act;        // Taken and Skip are allowed
 static bool               s_action_taken;
 static bool               s_entry_done;     // prevents entry anim replaying
 static GRect              s_canvas_target_frame;
-
-// Forward declarations: avoids circular include with dose_list_window.h
-void dose_list_window_refresh_after(uint8_t med_index, time_t dose_time);
 
 // ---------------------------------------------------------------------------
 // Text
@@ -99,13 +95,6 @@ static char s_name_buf[36];
 static char s_who_buf[56];
 static char s_until_buf[24];
 static char s_time_buf[32];
-
-// A dose further ahead than the early limit can only be viewed.
-static bool dose_can_act(void) {
-    if (s_mode == DETAIL_MODE_ALERT) return true;
-    uint16_t limit = med_list_get_settings()->earlyLimitMins;
-    return limit == 0 || s_dose_time - time(NULL) <= (time_t)limit * 60;
-}
 
 static bool details_hidden(void) {
     return med_list_get_settings()->privacyMode && !s_revealed;
@@ -271,30 +260,17 @@ static void alert_repeat_cb(void *ctx) {
 
 static void finish(const char *confirmation) {
     s_action_taken = true;
-    notifications_schedule_wakeups();
-    if (s_mode == DETAIL_MODE_BROWSE) {
-        dose_list_window_refresh_after(s_med_index, s_dose_time);
-    }
     confirm_dialog_push(confirmation);
     window_stack_remove(s_window, false);
 }
 
 static void do_taken(void) {
-    dose_log_record(s_med_index, DOSE_TAKEN, (uint32_t)s_dose_time);
-    appmessage_send_action(s_med_index, "taken", (uint32_t)s_dose_time);
-
-    // Update lastTakenTs on the watch immediately so interval scheduling uses
-    // the actual taken time rather than waiting for the phone to sync it back.
-    MedEntry *med = med_list_get(s_med_index);
-    if (med && med->scheduleType == SCHEDULE_INTERVAL) {
-        med->lastTakenTs = (uint32_t)time(NULL);
-    }
+    dose_action_mark(s_med_index, s_dose_time, DOSE_TAKEN);
     finish("Taken");
 }
 
 static void do_skip(void) {
-    dose_log_record(s_med_index, DOSE_SKIPPED, (uint32_t)s_dose_time);
-    appmessage_send_action(s_med_index, "skipped", (uint32_t)s_dose_time);
+    dose_action_mark(s_med_index, s_dose_time, DOSE_SKIPPED);
     finish("Skipped");
 }
 
@@ -394,7 +370,7 @@ static void open_snooze_menu(void) {
 #endif
 
 // ---------------------------------------------------------------------------
-// Buttons: Up = Snooze, Select = Taken, Down = Skip, Back = Snooze (alerts)
+// Buttons: Up = Snooze, Select = Taken, Down = Skip, Back = Snooze
 // ---------------------------------------------------------------------------
 
 static void up_click(ClickRecognizerRef rec, void *ctx) {
@@ -417,7 +393,6 @@ static void select_click(ClickRecognizerRef rec, void *ctx) {
         return;
     }
     stop_alert_repeat();
-    if (!s_can_act) return;
     do_taken();
 }
 
@@ -436,14 +411,9 @@ static void back_click(ClickRecognizerRef rec, void *ctx) {
 
 static void click_config_provider(void *ctx) {
     window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
-    if (s_can_act) {
-        window_single_click_subscribe(BUTTON_ID_DOWN, down_click);
-    }
-    // Snooze only applies to alerts; from the list, Back just closes.
-    if (s_mode == DETAIL_MODE_ALERT) {
-        window_single_click_subscribe(BUTTON_ID_UP, up_click);
-        window_single_click_subscribe(BUTTON_ID_BACK, back_click);
-    }
+    window_single_click_subscribe(BUTTON_ID_DOWN, down_click);
+    window_single_click_subscribe(BUTTON_ID_UP, up_click);
+    window_single_click_subscribe(BUTTON_ID_BACK, back_click);
 }
 
 // ---------------------------------------------------------------------------
@@ -462,28 +432,21 @@ static void window_load(Window *window) {
     s_icon_x      = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_ACTION_X);
     s_icon_snooze = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_ACTION_SNOOZE);
     s_action_bar  = action_bar_layer_create();
-    if (s_mode == DETAIL_MODE_ALERT) {
-        action_bar_layer_set_icon(s_action_bar, BUTTON_ID_UP, s_icon_snooze);
-    }
+    action_bar_layer_set_icon(s_action_bar, BUTTON_ID_UP, s_icon_snooze);
     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_check);
     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_DOWN, s_icon_x);
     action_bar_layer_set_click_config_provider(s_action_bar, click_config_provider);
-    int bar_w = 0;
-    if (s_can_act) {
-        action_bar_layer_add_to_window(s_action_bar, window);
-        bar_w = ACTION_BAR_WIDTH;
-    } else {
-        window_set_click_config_provider(window, click_config_provider);
-    }
+    action_bar_layer_add_to_window(s_action_bar, window);
+    int bar_w = ACTION_BAR_WIDTH;
 
 #ifdef PBL_RECT
     int content_x = 0;
     int content_w = bounds.size.w - bar_w;
     int text_inset = 4;
 #else
-    int content_x = s_can_act ? 12 : 0;
+    int content_x = 12;
     int content_w = bounds.size.w - bar_w - content_x;
-    int text_inset = s_can_act ? 8 : 16;
+    int text_inset = 8;
 #endif
     int text_x = content_x + text_inset;
     int text_w = content_w - text_inset * 2;
@@ -562,8 +525,8 @@ static void window_unload(Window *window) {
     stop_alert_repeat();
     cancel_current_anim();
 
-    // Alert closed without an action (app exit, another app): implicit snooze.
-    if (s_mode == DETAIL_MODE_ALERT && !s_action_taken) {
+    // Closed without an action (app exit, another app): implicit snooze.
+    if (!s_action_taken) {
         dose_log_record(s_med_index, DOSE_SNOOZED, (uint32_t)s_dose_time);
         notifications_schedule_snooze(s_med_index, s_dose_time);
     }
@@ -591,18 +554,15 @@ static void window_unload(Window *window) {
 // Public API
 // ---------------------------------------------------------------------------
 
-void detail_window_push(uint8_t med_index, time_t dose_time, DetailWindowMode mode) {
+void detail_window_push(uint8_t med_index, time_t dose_time) {
     s_med_index    = med_index;
     s_dose_time    = dose_time;
-    s_mode         = mode;
     s_revealed     = false;
-    s_can_act      = dose_can_act();
     s_action_taken = false;
     s_entry_done   = false;
     s_prop_anim    = NULL;
     s_alert_repeats = 0;
-    s_alert_timer  = (mode == DETAIL_MODE_ALERT)
-                   ? app_timer_register(ALERT_REPEAT_MS, alert_repeat_cb, NULL) : NULL;
+    s_alert_timer  = app_timer_register(ALERT_REPEAT_MS, alert_repeat_cb, NULL);
 
     s_window = window_create();
     window_set_window_handlers(s_window, (WindowHandlers){
