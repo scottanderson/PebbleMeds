@@ -57,6 +57,7 @@
 | 20 | uint8 | notifications.c | Older versions: snoozed med index. Deleted with 18 |
 | 21 | int32 | notifications.c | Older versions: snoozed dose timestamp. Deleted with 18 |
 | 22 | Snooze[] | notifications.c | Snoozed doses: return time, dose time and med index, one per med |
+| 23 | Unsent[] | appmessage.c | Actions the phone has not confirmed yet (max 16) |
 
 No key conflicts exist.
 
@@ -203,6 +204,17 @@ config and the pins. Keep `collect_dose_events()`, `collectDoseEvents()` and
 Pin IDs use the format `pebble-meds-{medId}-{timestamp}`. The `medId` is a stable UUID v4 assigned at medication creation (`config.html:saveMed()`) and persisted through edits. The `pushTimelinePins()` function in `timeline.js` stores a `medId → [pin IDs]` map in localStorage (`pebble_meds_timeline_pin_ids`). Before inserting new pins, it deletes all previously-tracked pins via `Pebble.deleteTimelinePin()` (available in Rebble app v1.0.6.8+). Backward-compat migration assigns `medId` to existing meds that lack one on first push.
 
 First-time upgrade: old index-based pins (`pebble-meds-{index}-{ts}`) from before medId exist as permanent orphans until they age past the 48h horizon — unavoidable without knowing historical timestamps.
+
+### Unsent Actions
+
+Taken, Skipped, Snooze, Undo, Pause and Resume are saved on the watch (key 23) before they are
+sent, and removed when the phone confirms each one. If the phone is not
+connected, they wait. When the phone next sends config, for example when the
+app starts with the phone connected, the watch sets that config aside, sends
+the waiting actions in order, and then asks for the config again. So stale
+config from the phone never replaces a change made on the watch. The phone
+ignores an action that repeats its last log entry, since the watch resends
+an action whose reply it missed.
 
 ### AppMessage Chunking
 
