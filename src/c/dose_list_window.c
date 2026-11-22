@@ -594,7 +594,7 @@ void dose_list_window_tick(void) {
     if (!s_menu_layer) return;
     time_t now = time(NULL);
     for (uint8_t i = 0; i < s_row_count; i++) {
-        if (!s_rows[i].missed && s_rows[i].dose_time < now - 60) {
+        if (!s_rows[i].missed && s_rows[i].dose_time != 0 && s_rows[i].dose_time < now - 60) {
             apply_refresh(s_skip_med, s_skip_after);
             return;
         }

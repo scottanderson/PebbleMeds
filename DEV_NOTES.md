@@ -143,7 +143,8 @@ A reminder buzzes again each minute (`ALERT_REPEAT_MS`, `ALERT_REPEATS` in
 `detail_window.c`). After the last buzz it closes itself, and closing a
 reminder without an answer snoozes it. So an ignored dose comes back every
 `snoozeMins` until it is marked. Answering or closing it stops the repeat.
-Revealing a private reminder does not.
+Revealing a private reminder does not, and the repeat goes on after the
+snooze menu or the skip question is closed with no answer.
 
 ### Missed Doses
 

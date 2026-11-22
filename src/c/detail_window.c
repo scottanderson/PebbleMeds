@@ -539,6 +539,10 @@ static void window_appear(Window *window) {
         s_alert_on_appear = false;
         notifications_alert(s_med_index);
     }
+    // Back from the snooze menu or the skip question with no answer: keep buzzing.
+    if (!s_action_taken && !s_alert_timer) {
+        s_alert_timer = app_timer_register(ALERT_REPEAT_MS, alert_repeat_cb, NULL);
+    }
     if (s_entry_done) return;   // only once per dose
     s_entry_done = true;
 
