@@ -444,10 +444,7 @@ static void add_dose_items(ActionMenuLevel *root) {
 #endif
 }
 
-static void select_click(MenuLayer *layer, MenuIndex *index, void *ctx) {
-    if (s_row_count == 0) return;
-    s_menu_row = s_rows[index->row];
-
+static void open_row_menu(void) {
     ActionMenuLevel *root = action_menu_level_create(4);
     // A paused med can only be resumed, as a disabled alarm can only be enabled.
     MedEntry *menu_med = med_list_get(s_menu_row.med_index);
@@ -467,6 +464,12 @@ static void select_click(MenuLayer *layer, MenuIndex *index, void *ctx) {
         .did_close = row_menu_did_close,
     };
     action_menu_open(&config);
+}
+
+static void select_click(MenuLayer *layer, MenuIndex *index, void *ctx) {
+    if (s_row_count == 0) return;
+    s_menu_row = s_rows[index->row];
+    open_row_menu();
 }
 
 // ---------------------------------------------------------------------------
@@ -547,6 +550,17 @@ void dose_list_window_push(void) {
         });
     }
     window_stack_push(s_window, true);
+}
+
+void dose_list_window_push_menu(uint8_t med_index, time_t dose_time) {
+    dose_list_window_push();
+    for (uint8_t i = 0; i < s_row_count; i++) {
+        if (s_rows[i].med_index != med_index) continue;
+        menu_layer_set_selected_index(s_menu_layer, (MenuIndex){0, i}, MenuRowAlignCenter, false);
+        break;
+    }
+    s_menu_row = (DoseRow){ .med_index = med_index, .dose_time = dose_time };
+    open_row_menu();
 }
 
 static void apply_refresh(uint8_t skip_med_index, time_t skip_after) {
