@@ -1,9 +1,8 @@
 #include "dose_log.h"
 
 // Persist key 19: ring-buffer dose log
-// Layout: { uint8_t count; uint8_t head; DoseLogEntry entries[32]; }
-// Size: 2 + 32 * 8 = 258 bytes — fits in one persist slot (256-byte limit requires
-// careful sizing; entries trimmed to 30 max for safety: 2 + 30*8 = 242 bytes).
+// Layout: { uint8_t count; uint8_t head; DoseLogEntry entries[30]; uint32_t since; }
+// Size: 248 bytes, under the 256-byte limit of one persist slot.
 
 #define DOSE_LOG_MAX      30
 #define PERSIST_KEY_DOSE_LOG 19
@@ -12,6 +11,7 @@ typedef struct {
     uint8_t      count;
     uint8_t      head;
     DoseLogEntry entries[DOSE_LOG_MAX];
+    uint32_t     since;  // when the log started; 0 in logs saved by older versions
 } DoseLogStore;
 
 static DoseLogStore s_store;
@@ -24,13 +24,25 @@ void dose_log_init(void) {
         if (s_store.count > DOSE_LOG_MAX) s_store.count = DOSE_LOG_MAX;
         if (s_store.head  >= DOSE_LOG_MAX) s_store.head  = 0;
     }
+    if (s_store.since == 0) s_store.since = (uint32_t)time(NULL);
 }
 
 void dose_log_deinit(void) {
     persist_write_data(PERSIST_KEY_DOSE_LOG, &s_store, sizeof(DoseLogStore));
 }
 
+static bool has_entry(uint8_t med_index, DoseAction action, uint32_t ts) {
+    for (uint8_t i = 0; i < s_store.count; i++) {
+        DoseLogEntry e = dose_log_get(i);
+        if (e.med_index == med_index && e.ts == ts && e.action == action) return true;
+    }
+    return false;
+}
+
 void dose_log_record(uint8_t med_index, DoseAction action, uint32_t ts) {
+    // A dose can be snoozed many times; one entry keeps room for the rest.
+    if (action == DOSE_SNOOZED && has_entry(med_index, DOSE_SNOOZED, ts)) return;
+
     s_store.entries[s_store.head] = (DoseLogEntry){
         .ts        = ts,
         .med_index = med_index,
@@ -52,4 +64,17 @@ DoseLogEntry dose_log_get(uint8_t index) {
     // index 0 = oldest, count-1 = newest
     uint8_t ring_index = (s_store.head - s_store.count + index + DOSE_LOG_MAX) % DOSE_LOG_MAX;
     return s_store.entries[ring_index];
+}
+
+bool dose_log_is_marked(uint8_t med_index, uint32_t ts) {
+    return has_entry(med_index, DOSE_TAKEN, ts) || has_entry(med_index, DOSE_SKIPPED, ts);
+}
+
+bool dose_log_covers(uint32_t ts) {
+    if (ts < s_store.since) return false;
+    if (s_store.count < DOSE_LOG_MAX) return true;
+    for (uint8_t i = 0; i < s_store.count; i++) {
+        if (dose_log_get(i).ts <= ts) return true;
+    }
+    return false;
 }
