@@ -78,3 +78,31 @@ bool dose_log_covers(uint32_t ts) {
     }
     return false;
 }
+
+static bool is_mark(DoseLogEntry e) {
+    return e.action == DOSE_TAKEN || e.action == DOSE_SKIPPED;
+}
+
+bool dose_log_last_mark(uint8_t med_index, uint32_t since, DoseLogEntry *out) {
+    for (int i = (int)s_store.count - 1; i >= 0; i--) {
+        DoseLogEntry e = dose_log_get((uint8_t)i);
+        if (e.med_index == med_index && is_mark(e) && e.ts >= since) {
+            *out = e;
+            return true;
+        }
+    }
+    return false;
+}
+
+void dose_log_clear_mark(uint8_t med_index, uint32_t ts) {
+    // Rebuild the ring from the oldest entry, leaving out the dose's marks.
+    DoseLogStore kept = { .since = s_store.since };
+    for (uint8_t i = 0; i < s_store.count; i++) {
+        DoseLogEntry e = dose_log_get(i);
+        if (e.med_index == med_index && e.ts == ts && is_mark(e)) continue;
+        kept.entries[kept.count++] = e;
+    }
+    kept.head = kept.count % DOSE_LOG_MAX;
+    s_store = kept;
+    persist_write_data(PERSIST_KEY_DOSE_LOG, &s_store, sizeof(DoseLogStore));
+}
