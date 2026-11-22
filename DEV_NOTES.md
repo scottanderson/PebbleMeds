@@ -197,7 +197,7 @@ First-time upgrade: old index-based pins (`pebble-meds-{index}-{ts}`) from befor
 
 ### AppMessage Chunking
 
-JSON config is ~3KB; max AppMessage inbox size is 768 bytes. Config is split into chunks of ~200 bytes each, reassembled on watch. Buffer is 3300 bytes.
+JSON config is ~3KB; max AppMessage inbox size is 768 bytes. Config is split into chunks of ~200 bytes each, reassembled on watch. The 3300-byte buffer is allocated only while chunks arrive, so it costs no RAM the rest of the time.
 
 ### Timeline Pin Cleanup API
 

@@ -24,7 +24,7 @@
 // jsmn token budget for a single med object (worst case ~35 tokens; 64 is ample).
 #define MED_TOKEN_COUNT  64
 
-static char    s_json_buf[JSON_BUF_SIZE];
+static char   *s_json_buf;  // allocated only while config chunks arrive
 static uint8_t s_expected_chunks = 0;
 static uint8_t s_received_chunks = 0;
 
@@ -266,15 +266,14 @@ static void parse_settings_object(const char *js, size_t len) {
 // Searches for "key": — safe because we control the format from config.html.
 // ---------------------------------------------------------------------------
 
+// strchr, not strstr: strstr pulls in about 1 KB of library code.
 static const char *find_root_value(const char *json, const char *key) {
-    char pattern[48];
-    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-    const char *p = json;
-    while ((p = strstr(p, pattern)) != NULL) {
-        const char *after = p + strlen(pattern);
+    size_t len = strlen(key);
+    for (const char *p = json; (p = strchr(p, '"')) != NULL; p++) {
+        if (strncmp(p + 1, key, len) != 0 || p[len + 1] != '"') continue;
+        const char *after = p + len + 2;
         while (*after == ' ' || *after == '\t') after++;
         if (*after == ':') return after + 1; // points to value (may have leading space)
-        p += strlen(pattern); // false positive, keep searching
     }
     return NULL;
 }
@@ -343,10 +342,16 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
         const char *chunk = json_t->value->cstring;
 
         if (index == 0) {
+            if (!s_json_buf) s_json_buf = malloc(JSON_BUF_SIZE);
+            if (!s_json_buf) {
+                APP_LOG(APP_LOG_LEVEL_ERROR, "No memory for the config");
+                return;
+            }
             s_json_buf[0]     = '\0';
             s_expected_chunks = total;
             s_received_chunks = 0;
         }
+        if (!s_json_buf) return;  // the first chunk was missed
 
         size_t cur_len   = strlen(s_json_buf);
         size_t chunk_len = strlen(chunk);
@@ -359,6 +364,8 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 
         if (s_received_chunks == s_expected_chunks) {
             process_config_json(s_json_buf);
+            free(s_json_buf);
+            s_json_buf = NULL;
         }
     }
 
@@ -389,6 +396,8 @@ void appmessage_init(void) {
 
 void appmessage_deinit(void) {
     app_message_deregister_callbacks();
+    free(s_json_buf);
+    s_json_buf = NULL;
 }
 
 void appmessage_send_action(uint8_t med_index, const char *action, uint32_t dose_ts) {
