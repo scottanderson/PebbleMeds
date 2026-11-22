@@ -25,6 +25,12 @@ static void fire_vibe(uint8_t vibe_pattern) {
     }
 }
 
+void notifications_alert(uint8_t med_index) {
+    MedEntry *med = med_list_get(med_index);
+    light_enable_interaction();
+    fire_vibe(med ? med->vibePattern : MED_VIBE_SHORT);
+}
+
 // ---------------------------------------------------------------------------
 // Dose event collection for wakeup scheduling
 // ---------------------------------------------------------------------------
@@ -167,9 +173,8 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
         persist_write_int(PERSIST_KEY_SNOOZE_MED,  0xFF);
         persist_write_int(PERSIST_KEY_SNOOZE_DOSE, 0);
         notifications_schedule_wakeups();
-        light_enable_interaction();
+        notifications_alert(med_index);
         MedEntry *snooze_med = med_list_get(med_index);
-        fire_vibe(snooze_med ? snooze_med->vibePattern : MED_VIBE_SHORT);
         if (snooze_med) {
             detail_window_push(med_index, dose_ts, DETAIL_MODE_ALERT);
         } else {
@@ -203,8 +208,7 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
         return;
     }
 
-    light_enable_interaction();
-    fire_vibe(med_list_get(due_indices[0]) ? med_list_get(due_indices[0])->vibePattern : MED_VIBE_SHORT);
+    notifications_alert(due_indices[0]);
     detail_window_push(due_indices[0], due_times[0], DETAIL_MODE_ALERT);
     notifications_schedule_wakeups();
 }
