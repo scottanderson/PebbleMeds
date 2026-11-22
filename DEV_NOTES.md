@@ -58,6 +58,9 @@ Three pairs of C and JS functions must be kept in sync:
 - `collect_dose_events()` ↔ `wakeups.js:collectDoseEvents()`
 - `notifications_schedule_wakeups()` ↔ `wakeups.js:planWakeups()`
 
+The snooze menu's `SNOOZE_CHOICES` in `detail_window.c` must also match the
+`#snooze-mins` options in `config.html`.
+
 The JS mirrors are testable without a Pebble emulator.
 
 ### Relative Times and the Minute Tick
@@ -104,6 +107,25 @@ Before the heartbeat fix, wakeup chain breaks (app crash, watch reboot) were per
 - `wakeup_schedule()` returns `E_RANGE` for times < 60 seconds from now
 - Wakeups may be cleared on watch reboot or app reinstall
 - There is NO "background app" concept in SDK 3/4 — the Wakeup API IS the background mechanism
+
+### Snooze Durations
+
+Up on an alert opens an `ActionMenu` of durations, each labeled with the time
+the reminder returns, in time order. The menu opens on the configured
+`snoozeMins` default, which is added in order if it is not one of the choices.
+The config page offers the same list as a dropdown (5 min to 12 hours), so
+the default is normally one of the choices.
+`notifications_schedule_snooze_for()` takes the chosen minutes; the wakeup slot
+plan is unchanged.
+
+- Labels live in static buffers because `ActionMenu` keeps the label pointers.
+- The SDK has no call to preselect an item. `ActionMenuLevelHead` mirrors the
+  start of the PebbleOS `ActionMenuLevel` struct to set `default_selected_item`,
+  as the system alarm's snooze menu does. The layout is the same in the
+  original 4.x firmware and in current PebbleOS.
+- The choice is applied in `did_close`, after the menu has animated away.
+- Aplite has about 3 KB of free heap, so the menu is compiled out there
+  (`HAS_SNOOZE_MENU`) and Up snoozes for the default time.
 
 ### Timeline Pin Management
 
