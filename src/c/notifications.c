@@ -52,7 +52,7 @@ static uint8_t collect_dose_events(time_t now, DoseEvent *out, uint8_t max_out) 
 
     for (uint8_t i = 0; i < med_count && count < max_out; i++) {
         MedEntry *med = med_list_get(i);
-        if (!med) continue;
+        if (!med || med->paused) continue;
 
         time_t t = med_list_next_dose_time(med, now);
         for (int occ = 0; occ < 4 && t > 0 && t <= horizon && count < max_out; occ++) {
@@ -176,8 +176,10 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
         notifications_schedule_wakeups();
         // Marked from the list while snoozed: nothing to remind.
         if (dose_log_is_marked(med_index, (uint32_t)dose_ts)) return;
-        notifications_alert(med_index);
         MedEntry *snooze_med = med_list_get(med_index);
+        // Paused while snoozed: nothing to remind.
+        if (snooze_med && snooze_med->paused) return;
+        notifications_alert(med_index);
         if (snooze_med) {
             detail_window_push(med_index, dose_ts);
         } else {
@@ -195,7 +197,7 @@ void notifications_handle_wakeup(WakeupId id, int32_t cookie) {
     uint8_t med_count = med_list_count();
     for (uint8_t i = 0; i < med_count; i++) {
         MedEntry *med = med_list_get(i);
-        if (!med) continue;
+        if (!med || med->paused) continue;
         // next_dose_time after (now - DUE_WINDOW - 1) gives the dose in the window
         time_t next = med_list_next_dose_time(med, now - DUE_WINDOW_SECS - 1);
         if (next >= now - DUE_WINDOW_SECS && next <= now + 60) {

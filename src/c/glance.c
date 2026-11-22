@@ -12,7 +12,7 @@ static time_t next_dose(time_t after, uint8_t *med_out) {
     time_t best = 0;
     for (uint8_t i = 0; i < med_list_count(); i++) {
         MedEntry *med = med_list_get(i);
-        if (!med) continue;
+        if (!med || med->paused) continue;
         time_t t = med_list_next_dose_time(med, after);
         if (t > after && (best == 0 || t < best)) {
             best = t;

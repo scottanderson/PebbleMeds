@@ -84,7 +84,7 @@ more than a minute past due.
 
 The `MedEntry` struct is stored as raw binary blobs via `persist_write_data`/`persist_read_data` with `sizeof(MedEntry)`. **New fields must be appended at the END of the struct**, never inserted in the middle. Inserting a field shifts byte offsets of all subsequent fields, corrupting existing users' stored data on upgrade.
 
-- OK: add fields after `vibePattern`
+- OK: add fields after `paused`
 - NOT OK: insert fields between `lastTakenTs` and `shape` (done once, caused shape/color corruption mitigated by JSON sync)
 
 ### 2. Config Page Backward Compatibility (GitHub Pages)
@@ -176,6 +176,19 @@ including wakeups, refreshes it. It adds one slice per upcoming dose (up to 8),
 each expiring at its dose time, so the glance moves on while the app is
 closed. Aplite has no glances.
 
+### Paused Medications
+
+A med can be paused from the config page list, which has an on/off switch for
+each med like the system Alarms list, or from the watch: the dose list's
+action menu has Pause, and a paused med's menu has only Resume. A paused med
+has `"paused": true` in its JSON and `paused` in `MedEntry`. It gets no
+wakeups, no snooze reminder, no timeline pins and no launcher glance. The
+watch list shows it last as "Paused", grayed out on color screens.
+
+The watch sends `pause` or `resume` to the phone, which updates its saved
+config and the pins. Keep `collect_dose_events()`, `collectDoseEvents()` and
+`pushTimelinePins()` in step when this changes.
+
 ### Timeline Pin Management
 
 Pin IDs use the format `pebble-meds-{medId}-{timestamp}`. The `medId` is a stable UUID v4 assigned at medication creation (`config.html:saveMed()`) and persisted through edits. The `pushTimelinePins()` function in `timeline.js` stores a `medId → [pin IDs]` map in localStorage (`pebble_meds_timeline_pin_ids`). Before inserting new pins, it deletes all previously-tracked pins via `Pebble.deleteTimelinePin()` (available in Rebble app v1.0.6.8+). Backward-compat migration assigns `medId` to existing meds that lack one on first push.
@@ -227,7 +240,7 @@ The detail window follows the PebbleOS alarm popup (`alarm_popup.c`):
   `ActionMenu` (Taken, Skip). The list and the reminder both mark doses
   through `dose_action_mark()`.
 - A row due further ahead than the Early Doses limit (`earlyLimitMins`) has
-  no Taken or Skip, so its menu only opens to undo.
+  no Taken or Skip.
 - The row menu adds "Undo Taken 8:00 AM" (or "Undo Skipped") for the med's
   latest mark from the last 24 hours. `dose_action_clear()` removes the log
   entry and sends `undo` to the phone, which drops it from its log. After an
