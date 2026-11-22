@@ -765,12 +765,17 @@ document.addEventListener("DOMContentLoaded", function () {
   buildColorGrid();
   buildWeekdayGrid();
 
-  // Initial config is passed as a URL fragment by index.js (localStorage
-  // is not available inside data URI pages on Android).
-  var hash = location.hash.slice(1);
-  if (hash) {
+  // The URL fragment fallback keeps a remotely hosted copy working.
+  var raw = (typeof window !== "undefined" && window.PEBBLE_MEDS_CONFIG) || null;
+  if (!raw) {
+    var hash = location.hash.slice(1);
+    if (hash) {
+      try { raw = decodeURIComponent(hash); } catch (e) { raw = null; }
+    }
+  }
+  if (raw) {
     try {
-      var cfg = JSON.parse(decodeURIComponent(hash));
+      var cfg = (typeof raw === "string") ? JSON.parse(raw) : raw;
       meds = cfg.meds || [];
       if (cfg.settings) {
         if (cfg.settings.snoozeMins !== undefined) {

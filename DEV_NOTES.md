@@ -89,7 +89,7 @@ The `MedEntry` struct is stored as raw binary blobs via `persist_write_data`/`pe
 
 ### 2. Config Page Backward Compatibility (GitHub Pages)
 
-The configuration page (`src/pkjs/config.html`) is served from GitHub Pages and is updated immediately on push. Users may not upgrade their watch app for hours or days. **The config page JSON output must remain parseable by the previous watch app version.**
+The configuration page (`src/pkjs/config.html`) ships inside the app (see Bundled Config Page), but older app versions still open the copy on GitHub Pages, which is updated on push. **The config page JSON output must remain parseable by the previous watch app version.**
 
 - New JSON keys (`weekMask`, new `scheduleType` values) are safe — the watch C parser silently ignores unknown keys and falls back to defaults for missing values
 - Changing/removing existing keys or their value formats would break old watch apps
@@ -149,6 +149,23 @@ dose that is already marked is dropped.
   new install or an upgrade shows no missed doses.
 - Repeat snoozes of one dose share one log entry, so snoozes do not push
   out the marks.
+
+### Bundled Config Page
+
+`src/pkjs/config.html` stays in the repository and on GitHub Pages for older
+versions of the app.
+`tools/gen_config_page.js` encodes `config.html` into `src/pkjs/config_page.js`
+(`exports.HTML`), and `app.js` opens it as a `data:text/html;charset=utf-8,…` URI. This
+is the same mechanism Clay uses.
+
+- The medication list never reaches a third party. `Pebble.openURL` must not
+  point to a hosted page, which would receive every taker, drug and schedule.
+- The current config is injected as `window.PEBBLE_MEDS_CONFIG` so it works without
+  `localStorage`, which is unavailable to data: URIs on Android. The `location.hash` path
+  is kept only for a locally hosted copy.
+- `config_page.js` is generated. After editing config.html, **always run**:
+  `npm run config-page`. `tests/config_page.test.js` fails if the copy is
+  stale, if the page loses its controls, or if any `http(s)://` URL creeps back into it.
 
 ### Timeline Pin Management
 
